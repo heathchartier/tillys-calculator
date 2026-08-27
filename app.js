@@ -631,7 +631,7 @@ function renderPurchaser(opt) {
   purchaserCard.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
       <div><h2>Purchaser Order</h2><div class="sub">Send this to your purchaser.</div></div>
-      <div>
+      <div class="po-actions">
         <button class="btn-secondary" id="copyPurchaserBtn">Copy for Email</button>
         <button class="btn-secondary" id="exportExcelBtn">Export to Excel</button>
         <button class="btn-secondary" id="printPurchaserBtn">Print</button>
@@ -691,77 +691,55 @@ function renderPurchaser(opt) {
 
   document.getElementById('printPurchaserBtn').addEventListener('click', () => window.print());
   document.getElementById('copyPurchaserBtn').addEventListener('click', () => {
-    copyPurchaserForEmail(itemLines, totalActualExt, totalBumpExt, lines, grandMaterial, cuttingCostTotal, grandTotal);
+    copyPurchaserScreenshot();
   });
   document.getElementById('exportExcelBtn').addEventListener('click', () => {
     exportPurchaseOrderExcel(itemLines, lines);
   });
 }
 
-// Builds a self-contained, inline-styled HTML table (light background, matching what the on-screen
-// card shows) and writes it to the clipboard as real HTML — pasting into Gmail/Outlook keeps the
-// table/number formatting instead of dumping plain unstyled text.
-function copyPurchaserForEmail(itemLines, totalActualExt, totalBumpExt, lines, grandMaterial, cuttingCostTotal, grandTotal) {
-  const th = 'padding:6px 10px;text-align:left;border-bottom:2px solid #ccc;font-size:12px;text-transform:uppercase;color:#555;font-family:Arial,sans-serif';
-  const thR = th + ';text-align:right';
-  const td = 'padding:6px 10px;border-bottom:1px solid #e2e2e2;font-family:Arial,sans-serif;font-size:13px;color:#111';
-  const tdR = td + ';text-align:right';
-  const tdCode = td + ';font-family:Consolas,monospace;color:#333';
-  const totalCell = 'padding:6px 10px;font-weight:bold;font-family:Arial,sans-serif;font-size:14px;color:#111';
-
-  const itemRows = itemLines.map(l => `<tr>
-      <td style="${td}">${l.matName}</td><td style="${td}">${l.size}</td><td style="${tdCode}">${l.code || '—'}</td>
-      <td style="${tdR}">${l.qty}</td><td style="${tdR}">${fmt$(l.actualCost)}</td><td style="${tdR}">${fmt$(l.bump)}</td>
-    </tr>`).join('');
-  const sheetRows = lines.map(l => `<tr>
-      <td style="${td}">${l.matName}</td><td style="${td}">${l.stockLabel}</td><td style="${tdCode}">${l.code || '—'}</td>
-      <td style="${tdR}">${l.count}</td><td style="${tdR}">${fmt$(l.costPerSheet)}</td><td style="${tdR}">${fmt$(l.lineTotal)}</td>
-    </tr>`).join('');
-
-  const html = `
-    <div style="font-family:Arial,sans-serif">
-      <h2 style="margin:0 0 12px;color:#111">Purchaser Order</h2>
-      <table style="border-collapse:collapse;width:100%;margin-bottom:8px">
-        <thead><tr><th style="${th}">Material</th><th style="${th}">Finished Size</th><th style="${th}">Code</th>
-          <th style="${thR}">Qty</th><th style="${thR}">Actual Cost</th><th style="${thR}">Cost With Bump</th></tr></thead>
-        <tbody>${itemRows}</tbody>
-      </table>
-      <table style="border-collapse:collapse;margin-bottom:20px"><tr>
-        <td style="${totalCell}">Total Actual Cost: ${fmt$(totalActualExt)}</td>
-        <td style="${totalCell};padding-left:24px">Total Cost With Bump: ${fmt$(totalBumpExt)}</td>
-      </tr></table>
-      <h3 style="margin:0 0 10px;color:#111;font-family:Arial,sans-serif">Stock Sheets To Order</h3>
-      <table style="border-collapse:collapse;width:100%;margin-bottom:8px">
-        <thead><tr><th style="${th}">Material</th><th style="${th}">Stock Sheet</th><th style="${th}">Code</th>
-          <th style="${thR}">Qty</th><th style="${thR}">Cost / Sheet</th><th style="${thR}">Line Total</th></tr></thead>
-        <tbody>${sheetRows}</tbody>
-      </table>
-      <table style="border-collapse:collapse"><tr>
-        <td style="${totalCell}">Total Material Cost: ${fmt$(grandMaterial)}</td>
-        <td style="${totalCell};padding-left:24px">Total Cutting Cost: ${fmt$(cuttingCostTotal)}</td>
-        <td style="${totalCell};padding-left:24px">Grand Total: ${fmt$(grandTotal)}</td>
-      </tr></table>
-    </div>`;
-
-  const plainLines = itemLines.map(l => `${l.matName} — ${l.size}${l.code ? ' (' + l.code + ')' : ''}: qty ${l.qty}  |  Actual Cost ${fmt$(l.actualCost)}  |  Cost With Bump ${fmt$(l.bump)}`)
-    .concat(['', 'Stock Sheets To Order:'])
-    .concat(lines.map(l => `${l.matName} — ${l.stockLabel}${l.code ? ' (' + l.code + ')' : ''}: qty ${l.count}  |  ${fmt$(l.costPerSheet)}/sheet  |  ${fmt$(l.lineTotal)}`));
-  const plain = `Tilly's Purchaser Order\n\n${plainLines.join('\n')}\n\nTotal Actual Cost: ${fmt$(totalActualExt)}\nTotal Cost With Bump: ${fmt$(totalBumpExt)}\nTotal Material Cost: ${fmt$(grandMaterial)}\nTotal Cutting Cost: ${fmt$(cuttingCostTotal)}\nGrand Total: ${fmt$(grandTotal)}`;
-
+// Takes an actual screenshot of the rendered Purchaser Order card (via html2canvas) and puts the
+// PNG on the clipboard — pasting into an email shows a real picture of the app, not reformatted text.
+function copyPurchaserScreenshot() {
   const flash = document.getElementById('copyFlash');
   const showFlash = (msg) => { flash.textContent = msg; setTimeout(() => { flash.textContent = ''; }, 2000); };
 
-  if (window.ClipboardItem) {
-    const item = new ClipboardItem({
-      'text/html': new Blob([html], { type: 'text/html' }),
-      'text/plain': new Blob([plain], { type: 'text/plain' }),
-    });
-    navigator.clipboard.write([item]).then(() => showFlash('Copied!')).catch(() => {
-      navigator.clipboard.writeText(plain).then(() => showFlash('Copied (plain text)!'));
-    });
-  } else {
-    navigator.clipboard.writeText(plain).then(() => showFlash('Copied (plain text)!'));
+  if (typeof html2canvas === 'undefined') {
+    showFlash('Screenshot library did not load');
+    return;
   }
+  const card = document.querySelector('.purchaser-card');
+  if (!card) return;
+
+  // Hide the button row itself so the screenshot is just the data, not the buttons that made it.
+  const actions = card.querySelector('.po-actions');
+  const prevVisibility = actions ? actions.style.visibility : null;
+  if (actions) actions.style.visibility = 'hidden';
+
+  const bg = getComputedStyle(card).backgroundColor || '#1a1d21';
+
+  html2canvas(card, { backgroundColor: bg, scale: 2 }).then((canvas) => {
+    if (actions) actions.style.visibility = prevVisibility || '';
+    canvas.toBlob((blob) => {
+      if (!blob) { showFlash('Screenshot failed'); return; }
+      if (window.ClipboardItem) {
+        navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+          .then(() => showFlash('Copied!'))
+          .catch(() => {
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+            showFlash('Opened image — save it manually');
+          });
+      } else {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        showFlash('Opened image — save it manually');
+      }
+    }, 'image/png');
+  }).catch(() => {
+    if (actions) actions.style.visibility = prevVisibility || '';
+    showFlash('Screenshot failed');
+  });
 }
 
 // Generates a .xlsx matching Tilly's own "IN PROCESS MATERIAL" PO form (same header fields,
@@ -778,42 +756,122 @@ function stockItemDescription(matKey, stockKey) {
   return `${thickness} ${stockKey} ${lowerName}`.trim();
 }
 
-function exportPurchaseOrderExcel(itemLines, sheetLines) {
-  if (typeof XLSX === 'undefined') { alert('Excel export library did not load — check your connection and try again.'); return; }
+// Recreates Tilly's actual paper PO form (Tillys 08-2026.xls) cell-for-cell: same header block,
+// same two bordered tables (SOURCE MATERIAL / FINISHED PRODUCTS) in the same columns, same
+// Arial 9/10pt fonts. Row numbers below match the real form's row numbers 1:1 when there are 9 or
+// fewer line items per table (the form's own layout) and grow gracefully past that.
+async function exportPurchaseOrderExcel(itemLines, sheetLines) {
+  if (typeof ExcelJS === 'undefined') { alert('Excel export library did not load — check your connection and try again.'); return; }
   const dateStr = new Date().toLocaleDateString('en-US');
-  const aoa = [];
-  const blank = () => aoa.push([]);
 
-  aoa.push(['', 'IN PROCESS MATERIAL']);
-  blank();
-  aoa.push(['', ' VENDOR   Chapman', '', '', '', 'WORK ORDER NO.']);
-  blank();
-  aoa.push(['', 'NEXT P.O. # /ORDER #   ', '', '', '', 'P.O. NO.    ']);
-  blank();
-  aoa.push(['', 'TRANSFER # ', '', '', '', 'SALESMAN ', 'Heath']);
-  blank();
-  aoa.push(['', "CUSTOMER #  TIL005 (our stock)  Tilly's", '', '', '', 'DATE          ', dateStr]);
-  blank();
-  aoa.push(['', 'SOURCE MATERIAL', '', '', '', 'CUSTOMER P.O.']);
-  blank();
-  aoa.push(['', 'ITEM DESCRIPTION', "TAG #'S /SKUS STOCK/BUYOUT P.O.", '', '', 'QTY SHPD TO VENDOR', 'DATE SHIPPED', 'BALANCE', '', '', 'BALANCE']);
-  for (const l of sheetLines) {
-    aoa.push(['', stockItemDescription(l.matKey, l.stockKey), l.code || '', '', '', l.count]);
-  }
-  blank();
-  aoa.push(['', 'FINISHED PRODUCTS']);
-  blank();
-  aoa.push(['', 'NEW ITEM DESCRIPTION', '', "QTY OF NEW ITEM REC'D", '', "DATE REC'D", 'ADD ON COSTS', 'BALANCE', '', 'BALANCE']);
-  for (const l of itemLines) {
-    aoa.push(['', l.code || l.size, '', l.qty]);
-  }
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('PO');
+  ws.columns = [
+    { width: 4.4 }, { width: 37.7 }, { width: 4.4 }, { width: 9 }, { width: 5.1 },
+    { width: 16.6 }, { width: 12.7 }, { width: 11.1 }, { width: 10.7 }, { width: 16.7 }, { width: 6.3 },
+  ];
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 2 }, { wch: 34 }, { wch: 20 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 10 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'PO');
-  const fileDate = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `Tillys_PO_${fileDate}.xlsx`);
+  const fontLabel = { name: 'Arial', size: 10 };
+  const fontHeader = { name: 'Arial', size: 9 };
+  const thin = { style: 'thin' };
+  const underline = { bottom: thin };
+  const center = { horizontal: 'center', vertical: 'middle' };
+
+  const set = (addr, value, opts = {}) => {
+    const cell = ws.getCell(addr);
+    cell.value = value;
+    cell.font = opts.font || fontLabel;
+    if (opts.border) cell.border = opts.border;
+    if (opts.align) cell.alignment = opts.align;
+    return cell;
+  };
+  // Full thin-line grid over a rectangular region — reproduces the form's bordered table look.
+  const gridBorder = (rowStart, rowEnd, colStart, colEnd) => {
+    for (let r = rowStart; r <= rowEnd; r++) {
+      for (let c = colStart; c <= colEnd; c++) {
+        ws.getCell(r, c).border = { top: thin, bottom: thin, left: thin, right: thin };
+      }
+    }
+  };
+
+  set('B1', 'IN PROCESS MATERIAL');
+
+  set('B3', ' VENDOR   Chapman', { border: underline });
+  set('F3', 'WORK ORDER NO.', { border: underline });
+
+  set('B5', 'NEXT P.O. # /ORDER #   ', { border: underline });
+  set('F5', 'P.O. NO.    ', { border: underline });
+
+  set('B7', 'TRANSFER # ', { border: underline });
+  set('F7', 'SALESMAN ', { border: underline });
+  set('G7', 'Heath', { border: underline });
+
+  set('B9', "CUSTOMER #  TIL005 (our stock)  Tilly's", { border: underline });
+  set('F9', 'DATE          ', { border: underline });
+  set('G9', dateStr, { border: underline });
+
+  set('B11', 'SOURCE MATERIAL');
+  set('F11', 'CUSTOMER P.O.', { border: underline });
+
+  // ---- Source Material table (rows 13+) ----
+  let r = 13;
+  const srcHeaderRow = r;
+  ws.mergeCells(`C${r}:E${r}`);
+  set(`B${r}`, 'ITEM DESCRIPTION', { font: fontHeader, align: center });
+  set(`C${r}`, "TAG #'S /SKUS STOCK/BUYOUT P.O.", { font: fontHeader, align: center });
+  set(`F${r}`, 'QTY SHPD TO VENDOR', { font: fontHeader, align: center });
+  set(`G${r}`, 'DATE SHIPPED', { font: fontHeader, align: center });
+  set(`H${r}`, 'BALANCE', { font: fontHeader, align: center });
+  set(`K${r}`, 'BALANCE', { font: fontHeader, align: center, border: { top: thin, right: thin } });
+  ws.getCell(`J${r}`).border = { top: thin };
+  r++;
+  const srcRowCount = Math.max(sheetLines.length, 9);
+  for (let i = 0; i < srcRowCount; i++) {
+    const l = sheetLines[i];
+    ws.mergeCells(`C${r}:E${r}`);
+    set(`B${r}`, l ? stockItemDescription(l.matKey, l.stockKey) : '', { align: center });
+    set(`C${r}`, l ? (l.code || '') : '', { align: center });
+    set(`F${r}`, l ? l.count : '', { align: center });
+    r++;
+  }
+  gridBorder(srcHeaderRow, r - 1, 2, 8);
+
+  r += 2;
+  set(`B${r}`, 'FINISHED PRODUCTS');
+  r += 2;
+
+  // ---- Finished Products table ----
+  const finHeaderRow = r;
+  ws.mergeCells(`B${r}:C${r}`);
+  ws.mergeCells(`D${r}:E${r}`);
+  set(`B${r}`, 'NEW ITEM DESCRIPTION', { font: fontHeader, align: center });
+  set(`D${r}`, "QTY OF NEW ITEM REC'D", { font: fontHeader, align: center });
+  set(`F${r}`, "DATE REC'D", { font: fontHeader, align: center });
+  set(`G${r}`, 'ADD ON COSTS', { font: fontHeader, align: center });
+  set(`H${r}`, 'BALANCE', { font: fontHeader, align: center });
+  set(`J${r}`, 'BALANCE', { font: fontHeader, align: center, border: { top: thin, right: thin } });
+  r++;
+  const finRowCount = Math.max(itemLines.length, 9);
+  for (let i = 0; i < finRowCount; i++) {
+    const l = itemLines[i];
+    ws.mergeCells(`B${r}:C${r}`);
+    ws.mergeCells(`D${r}:E${r}`);
+    set(`B${r}`, l ? (l.code || l.size) : '', { align: center });
+    set(`D${r}`, l ? l.qty : '', { align: center });
+    r++;
+  }
+  gridBorder(finHeaderRow, r - 1, 2, 8);
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Tillys_PO_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ---------- Wire up ----------

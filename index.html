@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Tilly's Panel &amp; Cut List Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --teal:#00e5b8; --teal-dim:rgba(0,229,184,.12); --teal-mid:rgba(0,229,184,.3);
+  --gold:#d4a800; --gold-dim:rgba(212,168,0,.12);
+  --bg:#0f1112; --panel:#17191b; --panel2:#1e2123; --border:#2a2d2f;
+  --ink:#f2f3f3; --mid:#9aa0a3; --dim:#666b6e;
+  --danger:#ff5d5d; --danger-dim:rgba(255,93,93,.12);
+  --r:10px;
+  --font-head:'Barlow Condensed',sans-serif; --font-body:'Barlow',sans-serif; --font-mono:'DM Mono',monospace;
+}
+*{box-sizing:border-box}
+body{font-family:var(--font-body);background:var(--bg);color:var(--ink);min-height:100dvh;font-size:15px;margin:0}
+h1,h2,h3{font-family:var(--font-head);margin:0}
+.wrap{max-width:1400px;margin:0 auto;padding:20px}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);background:var(--panel)}
+.logo{font-family:var(--font-head);font-size:24px;font-weight:800}
+.logo span{color:var(--teal)}
+.logo small{display:block;font-family:var(--font-body);font-size:11px;font-weight:600;color:var(--mid);letter-spacing:1px;text-transform:uppercase}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:18px}
+.card h2{font-size:20px;font-weight:700;letter-spacing:.3px;color:var(--ink);margin-bottom:4px}
+.card .sub{color:var(--mid);font-size:13px;margin-bottom:14px}
+.section-label{font-family:var(--font-head);font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--teal);margin:0 0 12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-family:var(--font-head);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--mid);padding:8px 8px;border-bottom:1px solid var(--border)}
+td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+input[type=number],input[type=text]{
+  width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--ink);
+  padding:7px 8px;font-family:var(--font-mono);font-size:13.5px;outline:none;
+}
+input[type=number]:focus,input[type=text]:focus{border-color:var(--teal)}
+.qty-input{width:80px}
+.dim-input{width:64px}
+.money{color:var(--gold)}
+.btn{
+  background:var(--teal);color:#0f1112;border:none;border-radius:var(--r);
+  font-family:var(--font-head);font-size:15px;font-weight:700;letter-spacing:.4px;
+  padding:11px 22px;cursor:pointer;
+}
+.btn:hover{filter:brightness(1.08)}
+.btn-secondary{
+  background:transparent;border:1px solid var(--border);color:var(--ink);border-radius:var(--r);
+  font-family:var(--font-head);font-size:14px;font-weight:600;padding:8px 16px;cursor:pointer;
+}
+.btn-secondary:hover{border-color:var(--teal);background:var(--teal-dim)}
+.btn-ghost{background:transparent;border:none;color:var(--mid);cursor:pointer;font-size:13px}
+.btn-ghost:hover{color:var(--danger)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
+.field label{display:block;font-family:var(--font-head);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--mid);margin-bottom:5px}
+.pill{display:inline-block;background:var(--teal-dim);color:var(--teal);border:1px solid var(--teal-mid);border-radius:20px;font-family:var(--font-head);font-size:12px;font-weight:700;padding:3px 10px;letter-spacing:.5px}
+.pill.gold{background:var(--gold-dim);color:var(--gold);border-color:rgba(212,168,0,.3)}
+.material-block{border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:14px;background:var(--panel2)}
+.material-block h3{font-size:18px;color:var(--ink);margin-bottom:2px}
+.material-block .meta{color:var(--mid);font-size:12.5px;margin-bottom:10px}
+.sheet-canvas-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.sheet-canvas-wrap{text-align:center}
+.sheet-canvas-wrap canvas{border:1px solid var(--border);border-radius:6px;background:#0b0c0d}
+.sheet-canvas-wrap .cap{font-family:var(--font-mono);font-size:11px;color:var(--mid);margin-top:4px}
+.stat-row{display:flex;gap:24px;flex-wrap:wrap;margin:10px 0}
+.stat{min-width:120px}
+.stat .v{font-family:var(--font-head);font-size:26px;font-weight:800;color:var(--teal)}
+.stat .l{font-size:11px;color:var(--mid);text-transform:uppercase;letter-spacing:1px}
+.purchaser-card{background:#12211d;border:1px solid rgba(0,229,184,.35);border-radius:var(--r);padding:20px 22px;margin-bottom:18px}
+.purchaser-card h2{color:var(--teal)}
+.purchaser-card table{background:transparent}
+.warn{background:var(--danger-dim);border:1px solid rgba(255,93,93,.35);color:var(--danger);border-radius:8px;padding:10px 14px;font-size:13.5px;margin-bottom:12px}
+.small{font-size:12.5px;color:var(--mid)}
+.right{text-align:right}
+.actions-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:16px 0}
+.copy-flash{color:var(--teal);font-size:13px;margin-left:6px}
+.collapsible-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between}
+.collapsible-toggle .chev{transition:transform .15s;color:var(--mid)}
+.collapsible-toggle.open .chev{transform:rotate(90deg)}
+.tag{font-family:var(--font-mono);font-size:11px;color:var(--dim)}
+footer{text-align:center;color:var(--dim);font-size:12px;padding:24px 0}
+#lockScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:1000}
+#lockScreen .lock-box{width:100%;max-width:340px;padding:32px;text-align:center}
+#lockScreen .lock-logo{font-family:var(--font-head);font-size:30px;font-weight:800;margin-bottom:6px}
+#lockScreen .lock-logo span{color:var(--teal)}
+#lockScreen p{color:var(--mid);font-size:13px;margin-bottom:20px}
+#lockScreen input{margin-bottom:12px;text-align:center;letter-spacing:2px}
+#lockScreen .lock-error{color:var(--danger);font-size:13px;min-height:18px;margin-bottom:8px}
+#appRoot{display:none}
+@media print{
+  body{background:#fff;color:#000}
+  header,.card:not(.purchaser-card),.actions-bar,footer{display:none!important}
+  .purchaser-card{border:1px solid #000;background:#fff}
+  .purchaser-card h2,.purchaser-card .pill{color:#000!important}
+  th,td{color:#000;border-color:#ccc}
+}
+</style>
+</head>
+<body>
+
+<div id="lockScreen">
+  <div class="lock-box">
+    <div class="lock-logo">Tilly's <span>Cut&nbsp;Calc</span></div>
+    <p>Enter the password to continue.</p>
+    <input type="password" id="lockPw" placeholder="Password" autocomplete="off">
+    <div class="lock-error" id="lockError"></div>
+    <button class="btn" style="width:100%" id="lockSubmit">Unlock</button>
+  </div>
+</div>
+
+<div id="appRoot">
+<header>
+  <div class="logo">Tilly's <span>Cut&nbsp;Calc</span><small>Panel &amp; Cut List Optimizer</small></div>
+  <div class="pill">World of Jeans</div>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <div class="collapsible-toggle" id="pricingToggle">
+      <div>
+        <h2>Pricing &amp; Settings</h2>
+        <div class="sub">Material cost per stock sheet, cutting labor, squaring/kerf, and margin — edit anytime.</div>
+      </div>
+      <div class="chev">&#9656;</div>
+    </div>
+    <div id="pricingBody" style="display:none;margin-top:10px">
+
+      <h3 class="section-label">Material Cost Per Stock Sheet</h3>
+      <div class="grid3" id="stockCostGrid"></div>
+
+      <h3 class="section-label" style="margin-top:18px">Cutting Labor (pooled across all materials, billed on full sheets used)</h3>
+      <div class="grid3">
+        <div class="field">
+          <label>Cost per sq ft (over threshold)</label>
+          <input type="number" id="cutPerSqft" step="0.001" value="0.125">
+        </div>
+        <div class="field">
+          <label>Flat charge (at/under threshold)</label>
+          <input type="number" id="cutFlat" step="1" value="100">
+        </div>
+        <div class="field">
+          <label>Flat-charge threshold (sheet sq ft)</label>
+          <input type="number" id="cutThreshold" step="1" value="800">
+        </div>
+      </div>
+
+      <h3 class="section-label" style="margin-top:18px">Optimizer Settings</h3>
+      <div class="sub" style="margin-top:-6px">Raw stock ships 1" oversize vs. nominal (e.g. a "4x8" is a true 49"x97" panel) — 0.5" per edge squaring trim below exactly consumes that oversize back down to nominal, matching Tilly's own sheet-count history. Kerf defaults to 0 for the same reason: several finished sizes divide the raw stock with zero margin, so this shop's planning doesn't reserve kerf loss. Raise it only if you want to build in real blade-width margin.</div>
+      <div class="grid3">
+        <div class="field">
+          <label>Squaring trim per edge (in)</label>
+          <input type="number" id="squaring" step="0.0625" value="0.5">
+        </div>
+        <div class="field">
+          <label>Saw kerf between cuts (in)</label>
+          <input type="number" id="kerf" step="0.0625" value="0">
+        </div>
+        <div class="field">
+          <label>Allow 90&deg; rotation</label>
+          <select id="allowRotate" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--ink);padding:7px 8px;font-family:var(--font-mono);font-size:13.5px">
+            <option value="1" selected>Yes — free rotation</option>
+            <option value="0">No — fixed orientation</option>
+          </select>
+        </div>
+      </div>
+
+      <h3 class="section-label" style="margin-top:18px">Sell-Side Multipliers (internal cost table only)</h3>
+      <div class="grid3">
+        <div class="field">
+          <label>Cost-with-bump multiplier</label>
+          <input type="number" id="bumpMult" step="0.01" value="1.05">
+        </div>
+        <div class="field">
+          <label>Ideal-sell margin (e.g. 0.85 = 15% margin)</label>
+          <input type="number" id="sellDivisor" step="0.01" value="0.85">
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn-secondary" id="savePricingBtn">Save Pricing to Cloud</button>
+        <span class="small" id="pricingSyncStatus"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Job Cut List</h2>
+    <div class="sub">Enter quantity needed for each finished panel size. Add a custom size if a job needs one not listed.</div>
+    <div id="catalogHost"></div>
+    <div class="actions-bar">
+      <button class="btn-secondary" id="loadSampleBtn">Load Tilly's sample order</button>
+      <button class="btn-secondary" id="clearQtyBtn">Clear quantities</button>
+    </div>
+
+    <div class="material-block" style="margin-top:6px">
+      <h3>Saved Requests</h3>
+      <div class="meta">Save this cut list so you can pull it back up later.</div>
+      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap">
+        <div class="field" style="flex:1;min-width:200px;margin-bottom:0"><label>Request name</label><input type="text" id="saveNameInput" placeholder="e.g. August PO #4521"></div>
+        <button class="btn-secondary" id="saveRequestBtn">Save Current Request</button>
+      </div>
+      <div id="savedRequestsList"></div>
+    </div>
+  </div>
+
+  <div class="actions-bar">
+    <button class="btn" id="optimizeBtn">Optimize &amp; Calculate</button>
+    <span class="small" id="optimizeStatus"></span>
+  </div>
+
+  <div id="resultsHost"></div>
+
+  <div id="purchaserHost"></div>
+
+  <footer>Tilly's Panel &amp; Cut List Calculator — internal estimating tool</footer>
+</div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

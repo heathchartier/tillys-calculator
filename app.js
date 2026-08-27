@@ -595,7 +595,7 @@ function buildSheetLines(results) {
       if (count === 0) continue;
       const lineTotal = count * st.costPerSheet;
       grandMaterial += lineTotal;
-      lines.push({ matName: mat.name, stockLabel: st.label, code: st.code || '', count, costPerSheet: st.costPerSheet, lineTotal });
+      lines.push({ matKey, stockKey: st.key, matName: mat.name, stockLabel: st.label, code: st.code || '', count, costPerSheet: st.costPerSheet, lineTotal });
     }
   }
   return { lines, grandMaterial };
@@ -607,8 +607,7 @@ function renderPurchaser(opt) {
   const { results, settings, cuttingCostTotal } = opt;
   const { lines, grandMaterial } = buildSheetLines(results);
 
-  // Consolidated finished-size line items (across all materials) — this is what the purchaser sees:
-  // what's being ordered, qty, and cost, no sheet/stock nesting detail and no Ideal Sell.
+  // Consolidated finished-size line items (across all materials).
   const itemLines = [];
   for (const matKey in results) {
     const r = results[matKey];
@@ -623,29 +622,35 @@ function renderPurchaser(opt) {
   }
   const totalActualExt = itemLines.reduce((s, l) => s + l.actualCost * l.qty, 0);
   const totalBumpExt = itemLines.reduce((s, l) => s + l.bump * l.qty, 0);
+  const grandTotal = grandMaterial + cuttingCostTotal;
 
-  // --- Purchaser Order: finished size / qty / actual cost / cost with bump. This is what gets emailed out. ---
+  // One combined card — finished parts, then the stock sheets to order, then totals.
+  // Everything here is meant to go to the purchaser (send via Copy for Email / Print / Export to Excel).
   const purchaserCard = document.createElement('div');
   purchaserCard.className = 'purchaser-card';
   purchaserCard.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
-      <div><h2>Purchaser Order</h2><div class="sub">Finished sizes, qty &amp; cost — send this to your purchaser.</div></div>
+      <div><h2>Purchaser Order</h2><div class="sub">Send this to your purchaser.</div></div>
       <div>
         <button class="btn-secondary" id="copyPurchaserBtn">Copy for Email</button>
+        <button class="btn-secondary" id="exportExcelBtn">Export to Excel</button>
         <button class="btn-secondary" id="printPurchaserBtn">Print</button>
         <span class="copy-flash" id="copyFlash"></span>
       </div>
     </div>`;
+
   const pTable = document.createElement('table');
+  pTable.style.marginTop = '14px';
   pTable.innerHTML = `<thead><tr><th>Material</th><th>Finished Size</th><th>Code</th><th class="right">Qty</th><th class="right">Actual Cost</th><th class="right">Cost With Bump</th></tr></thead>`;
   const pTbody = document.createElement('tbody');
   for (const l of itemLines) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${l.matName}</td><td>${l.size}</td><td class="tag">${l.code || '—'}</td><td class="right">${l.qty}</td><td class="right money">${fmt$(l.actualCost)}</td><td class="right money">${fmt$(l.bump)}</td>`;
+    tr.innerHTML = `<td>${l.matName}</td><td>${l.size}</td><td class="code-cell">${l.code || '—'}</td><td class="right">${l.qty}</td><td class="right money">${fmt$(l.actualCost)}</td><td class="right money">${fmt$(l.bump)}</td>`;
     pTbody.appendChild(tr);
   }
   pTable.appendChild(pTbody);
   purchaserCard.appendChild(pTable);
+
   const pTotals = document.createElement('div');
   pTotals.className = 'stat-row';
   pTotals.style.marginTop = '14px';
@@ -654,44 +659,161 @@ function renderPurchaser(opt) {
     <div class="stat"><div class="v">${fmt$(totalBumpExt)}</div><div class="l">Total Cost With Bump</div></div>
   `;
   purchaserCard.appendChild(pTotals);
-  host.appendChild(purchaserCard);
 
-  document.getElementById('printPurchaserBtn').addEventListener('click', () => window.print());
-  document.getElementById('copyPurchaserBtn').addEventListener('click', () => {
-    const textLines = itemLines.map(l => `${l.matName} — ${l.size}${l.code ? ' (' + l.code + ')' : ''}: qty ${l.qty}  |  Actual Cost ${fmt$(l.actualCost)}  |  Cost With Bump ${fmt$(l.bump)}`);
-    const text = `Tilly's Purchaser Order\n\n${textLines.join('\n')}\n\nTotal Actual Cost: ${fmt$(totalActualExt)}\nTotal Cost With Bump: ${fmt$(totalBumpExt)}`;
-    navigator.clipboard.writeText(text).then(() => {
-      const flash = document.getElementById('copyFlash');
-      flash.textContent = 'Copied!';
-      setTimeout(() => { flash.textContent = ''; }, 2000);
-    });
-  });
+  const iLabel = document.createElement('h3');
+  iLabel.className = 'section-label';
+  iLabel.style.marginTop = '22px';
+  iLabel.textContent = 'Stock Sheets To Order';
+  purchaserCard.appendChild(iLabel);
 
-  // --- Internal Reference: same sheet breakdown, plus cutting cost + grand total. Personal use only. ---
-  const internalCard = document.createElement('div');
-  internalCard.className = 'card';
-  internalCard.innerHTML = `<h2>Internal Reference <span class="tag" style="font-size:12px">(personal — not for the purchaser)</span></h2><div class="sub">Full job cost including pooled cutting labor.</div>`;
   const iTable = document.createElement('table');
-  iTable.style.marginTop = '10px';
   iTable.innerHTML = `<thead><tr><th>Material</th><th>Stock Sheet</th><th>Code</th><th class="right">Qty</th><th class="right">Cost / Sheet</th><th class="right">Line Total</th></tr></thead>`;
   const iTbody = document.createElement('tbody');
   for (const l of lines) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${l.matName}</td><td>${l.stockLabel}</td><td class="tag">${l.code || '—'}</td><td class="right">${l.count}</td><td class="right money">${fmt$(l.costPerSheet)}</td><td class="right money">${fmt$(l.lineTotal)}</td>`;
+    tr.innerHTML = `<td>${l.matName}</td><td>${l.stockLabel}</td><td class="code-cell">${l.code || '—'}</td><td class="right">${l.count}</td><td class="right money">${fmt$(l.costPerSheet)}</td><td class="right money">${fmt$(l.lineTotal)}</td>`;
     iTbody.appendChild(tr);
   }
   iTable.appendChild(iTbody);
-  internalCard.appendChild(iTable);
+  purchaserCard.appendChild(iTable);
+
   const iTotals = document.createElement('div');
   iTotals.className = 'stat-row';
   iTotals.style.marginTop = '14px';
   iTotals.innerHTML = `
     <div class="stat"><div class="v">${fmt$(grandMaterial)}</div><div class="l">Total Material Cost</div></div>
     <div class="stat"><div class="v">${fmt$(cuttingCostTotal)}</div><div class="l">Total Cutting Cost</div></div>
-    <div class="stat"><div class="v">${fmt$(grandMaterial + cuttingCostTotal)}</div><div class="l">Grand Total</div></div>
+    <div class="stat"><div class="v">${fmt$(grandTotal)}</div><div class="l">Grand Total</div></div>
   `;
-  internalCard.appendChild(iTotals);
-  host.appendChild(internalCard);
+  purchaserCard.appendChild(iTotals);
+
+  host.appendChild(purchaserCard);
+
+  document.getElementById('printPurchaserBtn').addEventListener('click', () => window.print());
+  document.getElementById('copyPurchaserBtn').addEventListener('click', () => {
+    copyPurchaserForEmail(itemLines, totalActualExt, totalBumpExt, lines, grandMaterial, cuttingCostTotal, grandTotal);
+  });
+  document.getElementById('exportExcelBtn').addEventListener('click', () => {
+    exportPurchaseOrderExcel(itemLines, lines);
+  });
+}
+
+// Builds a self-contained, inline-styled HTML table (light background, matching what the on-screen
+// card shows) and writes it to the clipboard as real HTML — pasting into Gmail/Outlook keeps the
+// table/number formatting instead of dumping plain unstyled text.
+function copyPurchaserForEmail(itemLines, totalActualExt, totalBumpExt, lines, grandMaterial, cuttingCostTotal, grandTotal) {
+  const th = 'padding:6px 10px;text-align:left;border-bottom:2px solid #ccc;font-size:12px;text-transform:uppercase;color:#555;font-family:Arial,sans-serif';
+  const thR = th + ';text-align:right';
+  const td = 'padding:6px 10px;border-bottom:1px solid #e2e2e2;font-family:Arial,sans-serif;font-size:13px;color:#111';
+  const tdR = td + ';text-align:right';
+  const tdCode = td + ';font-family:Consolas,monospace;color:#333';
+  const totalCell = 'padding:6px 10px;font-weight:bold;font-family:Arial,sans-serif;font-size:14px;color:#111';
+
+  const itemRows = itemLines.map(l => `<tr>
+      <td style="${td}">${l.matName}</td><td style="${td}">${l.size}</td><td style="${tdCode}">${l.code || '—'}</td>
+      <td style="${tdR}">${l.qty}</td><td style="${tdR}">${fmt$(l.actualCost)}</td><td style="${tdR}">${fmt$(l.bump)}</td>
+    </tr>`).join('');
+  const sheetRows = lines.map(l => `<tr>
+      <td style="${td}">${l.matName}</td><td style="${td}">${l.stockLabel}</td><td style="${tdCode}">${l.code || '—'}</td>
+      <td style="${tdR}">${l.count}</td><td style="${tdR}">${fmt$(l.costPerSheet)}</td><td style="${tdR}">${fmt$(l.lineTotal)}</td>
+    </tr>`).join('');
+
+  const html = `
+    <div style="font-family:Arial,sans-serif">
+      <h2 style="margin:0 0 12px;color:#111">Purchaser Order</h2>
+      <table style="border-collapse:collapse;width:100%;margin-bottom:8px">
+        <thead><tr><th style="${th}">Material</th><th style="${th}">Finished Size</th><th style="${th}">Code</th>
+          <th style="${thR}">Qty</th><th style="${thR}">Actual Cost</th><th style="${thR}">Cost With Bump</th></tr></thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+      <table style="border-collapse:collapse;margin-bottom:20px"><tr>
+        <td style="${totalCell}">Total Actual Cost: ${fmt$(totalActualExt)}</td>
+        <td style="${totalCell};padding-left:24px">Total Cost With Bump: ${fmt$(totalBumpExt)}</td>
+      </tr></table>
+      <h3 style="margin:0 0 10px;color:#111;font-family:Arial,sans-serif">Stock Sheets To Order</h3>
+      <table style="border-collapse:collapse;width:100%;margin-bottom:8px">
+        <thead><tr><th style="${th}">Material</th><th style="${th}">Stock Sheet</th><th style="${th}">Code</th>
+          <th style="${thR}">Qty</th><th style="${thR}">Cost / Sheet</th><th style="${thR}">Line Total</th></tr></thead>
+        <tbody>${sheetRows}</tbody>
+      </table>
+      <table style="border-collapse:collapse"><tr>
+        <td style="${totalCell}">Total Material Cost: ${fmt$(grandMaterial)}</td>
+        <td style="${totalCell};padding-left:24px">Total Cutting Cost: ${fmt$(cuttingCostTotal)}</td>
+        <td style="${totalCell};padding-left:24px">Grand Total: ${fmt$(grandTotal)}</td>
+      </tr></table>
+    </div>`;
+
+  const plainLines = itemLines.map(l => `${l.matName} — ${l.size}${l.code ? ' (' + l.code + ')' : ''}: qty ${l.qty}  |  Actual Cost ${fmt$(l.actualCost)}  |  Cost With Bump ${fmt$(l.bump)}`)
+    .concat(['', 'Stock Sheets To Order:'])
+    .concat(lines.map(l => `${l.matName} — ${l.stockLabel}${l.code ? ' (' + l.code + ')' : ''}: qty ${l.count}  |  ${fmt$(l.costPerSheet)}/sheet  |  ${fmt$(l.lineTotal)}`));
+  const plain = `Tilly's Purchaser Order\n\n${plainLines.join('\n')}\n\nTotal Actual Cost: ${fmt$(totalActualExt)}\nTotal Cost With Bump: ${fmt$(totalBumpExt)}\nTotal Material Cost: ${fmt$(grandMaterial)}\nTotal Cutting Cost: ${fmt$(cuttingCostTotal)}\nGrand Total: ${fmt$(grandTotal)}`;
+
+  const flash = document.getElementById('copyFlash');
+  const showFlash = (msg) => { flash.textContent = msg; setTimeout(() => { flash.textContent = ''; }, 2000); };
+
+  if (window.ClipboardItem) {
+    const item = new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([plain], { type: 'text/plain' }),
+    });
+    navigator.clipboard.write([item]).then(() => showFlash('Copied!')).catch(() => {
+      navigator.clipboard.writeText(plain).then(() => showFlash('Copied (plain text)!'));
+    });
+  } else {
+    navigator.clipboard.writeText(plain).then(() => showFlash('Copied (plain text)!'));
+  }
+}
+
+// Generates a .xlsx matching Tilly's own "IN PROCESS MATERIAL" PO form (same header fields,
+// same SOURCE MATERIAL / FINISHED PRODUCTS layout and column order) filled in from the current
+// job, ready to send straight to the purchaser. Vendor/Salesman/Customer stay fixed per Heath —
+// only the date and the two part tables change per job.
+const MATERIAL_LOWER_NAME = { pb: 'particle board', whiteMel: 'white melamine', blackMel: 'black melamine' };
+
+function stockItemDescription(matKey, stockKey) {
+  const mat = MATERIALS[matKey];
+  const thicknessMatch = mat.name.match(/[\d/]+"/);
+  const thickness = thicknessMatch ? thicknessMatch[0].replace('"', '') : '';
+  const lowerName = MATERIAL_LOWER_NAME[matKey] || mat.name.toLowerCase();
+  return `${thickness} ${stockKey} ${lowerName}`.trim();
+}
+
+function exportPurchaseOrderExcel(itemLines, sheetLines) {
+  if (typeof XLSX === 'undefined') { alert('Excel export library did not load — check your connection and try again.'); return; }
+  const dateStr = new Date().toLocaleDateString('en-US');
+  const aoa = [];
+  const blank = () => aoa.push([]);
+
+  aoa.push(['', 'IN PROCESS MATERIAL']);
+  blank();
+  aoa.push(['', ' VENDOR   Chapman', '', '', '', 'WORK ORDER NO.']);
+  blank();
+  aoa.push(['', 'NEXT P.O. # /ORDER #   ', '', '', '', 'P.O. NO.    ']);
+  blank();
+  aoa.push(['', 'TRANSFER # ', '', '', '', 'SALESMAN ', 'Heath']);
+  blank();
+  aoa.push(['', "CUSTOMER #  TIL005 (our stock)  Tilly's", '', '', '', 'DATE          ', dateStr]);
+  blank();
+  aoa.push(['', 'SOURCE MATERIAL', '', '', '', 'CUSTOMER P.O.']);
+  blank();
+  aoa.push(['', 'ITEM DESCRIPTION', "TAG #'S /SKUS STOCK/BUYOUT P.O.", '', '', 'QTY SHPD TO VENDOR', 'DATE SHIPPED', 'BALANCE', '', '', 'BALANCE']);
+  for (const l of sheetLines) {
+    aoa.push(['', stockItemDescription(l.matKey, l.stockKey), l.code || '', '', '', l.count]);
+  }
+  blank();
+  aoa.push(['', 'FINISHED PRODUCTS']);
+  blank();
+  aoa.push(['', 'NEW ITEM DESCRIPTION', '', "QTY OF NEW ITEM REC'D", '', "DATE REC'D", 'ADD ON COSTS', 'BALANCE', '', 'BALANCE']);
+  for (const l of itemLines) {
+    aoa.push(['', l.code || l.size, '', l.qty]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 2 }, { wch: 34 }, { wch: 20 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'PO');
+  const fileDate = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `Tillys_PO_${fileDate}.xlsx`);
 }
 
 // ---------- Wire up ----------

@@ -826,7 +826,7 @@ async function exportPurchaseOrderExcel(itemLines, sheetLines) {
   set(`F${r}`, 'QTY SHPD TO VENDOR', { font: fontHeader, align: centerWrap });
   set(`G${r}`, 'DATE SHIPPED', { font: fontHeader, align: centerWrap });
   set(`H${r}`, 'BALANCE', { font: fontHeader, align: centerWrap });
-  ws.getRow(r).height = 28;
+  ws.getRow(r).height = 23.3;
   r++;
   const srcRowCount = Math.max(sheetLines.length, 9);
   for (let i = 0; i < srcRowCount; i++) {
@@ -852,7 +852,7 @@ async function exportPurchaseOrderExcel(itemLines, sheetLines) {
   set(`F${r}`, "DATE REC'D", { font: fontHeader, align: centerWrap });
   set(`G${r}`, 'ADD ON COSTS', { font: fontHeader, align: centerWrap });
   set(`H${r}`, 'BALANCE', { font: fontHeader, align: centerWrap });
-  ws.getRow(r).height = 28;
+  ws.getRow(r).height = 23.3;
   r++;
   const finRowCount = Math.max(itemLines.length, 9);
   for (let i = 0; i < finRowCount; i++) {

@@ -658,7 +658,9 @@ document.getElementById('optimizeBtn').addEventListener('click', () => {
 
 // ---------- Auth + cloud pricing sync ----------
 
-const WORKER_BASE = 'https://tillys-pricing.heathchartier.workers.dev';
+// Custom domain (not the shared *.workers.dev one) — some corporate networks blanket-block
+// Cloudflare's shared workers.dev wildcard as generic/uncategorized cloud infra.
+const WORKER_BASE = 'https://tillys.cutlistiq.pro';
 const AUTH_STORAGE_KEY = 'tillys_auth_key';
 
 function getAuthKey() { try { return localStorage.getItem(AUTH_STORAGE_KEY); } catch (e) { return null; } }

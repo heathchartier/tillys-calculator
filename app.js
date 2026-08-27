@@ -175,6 +175,16 @@ function allCatalogEntries(matKey) {
 
 // ---------- UI: Pricing panel ----------
 
+// Auto-save pricing (stock costs + settings) to the cloud shortly after the user stops
+// editing — fixes costs silently reverting because nobody remembered to click the manual
+// save button. Debounced so we don't fire a save on every keystroke.
+let autoSaveTimer = null;
+function scheduleAutoSave() {
+  if (!getAuthKey()) return; // not logged in yet (e.g. still on the lock screen) — nothing to save to
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => { savePricingToCloud(); }, 900);
+}
+
 function renderStockCostGrid() {
   const host = document.getElementById('stockCostGrid');
   host.innerHTML = '';
@@ -188,8 +198,18 @@ function renderStockCostGrid() {
       host.appendChild(div);
       div.querySelector('input').addEventListener('input', (e) => {
         state.stockCost[stockCostKey(matKey, st.key)] = parseFloat(e.target.value) || 0;
+        scheduleAutoSave();
       });
     }
+  }
+}
+
+function wireSettingsAutoSave() {
+  const ids = ['squaring', 'kerf', 'allowRotate', 'cutPerSqft', 'cutFlat', 'cutThreshold', 'bumpMult', 'sellDivisor'];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(evt, scheduleAutoSave);
   }
 }
 
@@ -810,6 +830,8 @@ document.getElementById('pwSubmitBtn').addEventListener('click', async () => {
     fail('Network error — try again.');
   }
 });
+
+wireSettingsAutoSave();
 
 (async function boot() {
   if (getAuthKey()) { hideLockScreen(); await bootApp(); }

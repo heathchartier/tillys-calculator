@@ -771,7 +771,7 @@ async function exportPurchaseOrderExcel(itemLines, sheetLines) {
   const ws = wb.addWorksheet('PO');
   ws.columns = [
     { width: 4.4 }, { width: 37.7 }, { width: 4.4 }, { width: 9 }, { width: 5.1 },
-    { width: 16.6 }, { width: 12.7 }, { width: 11.1 }, { width: 10.7 }, { width: 16.7 }, { width: 6.3 },
+    { width: 16.6 }, { width: 12.7 }, { width: 11.1 },
   ];
 
   const fontLabel = { name: 'Arial', size: 10 };
@@ -779,6 +779,7 @@ async function exportPurchaseOrderExcel(itemLines, sheetLines) {
   const thin = { style: 'thin' };
   const underline = { bottom: thin };
   const center = { horizontal: 'center', vertical: 'middle' };
+  const centerWrap = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
   const set = (addr, value, opts = {}) => {
     const cell = ws.getCell(addr);
@@ -820,13 +821,12 @@ async function exportPurchaseOrderExcel(itemLines, sheetLines) {
   let r = 13;
   const srcHeaderRow = r;
   ws.mergeCells(`C${r}:E${r}`);
-  set(`B${r}`, 'ITEM DESCRIPTION', { font: fontHeader, align: center });
-  set(`C${r}`, "TAG #'S /SKUS STOCK/BUYOUT P.O.", { font: fontHeader, align: center });
-  set(`F${r}`, 'QTY SHPD TO VENDOR', { font: fontHeader, align: center });
-  set(`G${r}`, 'DATE SHIPPED', { font: fontHeader, align: center });
-  set(`H${r}`, 'BALANCE', { font: fontHeader, align: center });
-  set(`K${r}`, 'BALANCE', { font: fontHeader, align: center, border: { top: thin, right: thin } });
-  ws.getCell(`J${r}`).border = { top: thin };
+  set(`B${r}`, 'ITEM DESCRIPTION', { font: fontHeader, align: centerWrap });
+  set(`C${r}`, "TAG #'S /SKUS STOCK/BUYOUT P.O.", { font: fontHeader, align: centerWrap });
+  set(`F${r}`, 'QTY SHPD TO VENDOR', { font: fontHeader, align: centerWrap });
+  set(`G${r}`, 'DATE SHIPPED', { font: fontHeader, align: centerWrap });
+  set(`H${r}`, 'BALANCE', { font: fontHeader, align: centerWrap });
+  ws.getRow(r).height = 28;
   r++;
   const srcRowCount = Math.max(sheetLines.length, 9);
   for (let i = 0; i < srcRowCount; i++) {
@@ -847,12 +847,12 @@ async function exportPurchaseOrderExcel(itemLines, sheetLines) {
   const finHeaderRow = r;
   ws.mergeCells(`B${r}:C${r}`);
   ws.mergeCells(`D${r}:E${r}`);
-  set(`B${r}`, 'NEW ITEM DESCRIPTION', { font: fontHeader, align: center });
-  set(`D${r}`, "QTY OF NEW ITEM REC'D", { font: fontHeader, align: center });
-  set(`F${r}`, "DATE REC'D", { font: fontHeader, align: center });
-  set(`G${r}`, 'ADD ON COSTS', { font: fontHeader, align: center });
-  set(`H${r}`, 'BALANCE', { font: fontHeader, align: center });
-  set(`J${r}`, 'BALANCE', { font: fontHeader, align: center, border: { top: thin, right: thin } });
+  set(`B${r}`, 'NEW ITEM DESCRIPTION', { font: fontHeader, align: centerWrap });
+  set(`D${r}`, "QTY OF NEW ITEM REC'D", { font: fontHeader, align: centerWrap });
+  set(`F${r}`, "DATE REC'D", { font: fontHeader, align: centerWrap });
+  set(`G${r}`, 'ADD ON COSTS', { font: fontHeader, align: centerWrap });
+  set(`H${r}`, 'BALANCE', { font: fontHeader, align: centerWrap });
+  ws.getRow(r).height = 28;
   r++;
   const finRowCount = Math.max(itemLines.length, 9);
   for (let i = 0; i < finRowCount; i++) {

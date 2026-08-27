@@ -12,6 +12,10 @@
 // NOTE: defaultCost is intentionally 0 for every stock — real costs never ship in this public
 // source file. They live only in Cloudflare KV (via the pricing sync Worker) and are pulled in
 // after login, then cached in this browser via loadPricingFromCloud().
+// Every catalog entry carries a stable `id` — that's the real key used everywhere internally
+// (quantities, product codes, sample-load lookups). `name`/`w`/`h` are just the current display
+// values and are fully editable in the UI without breaking anything else, since nothing else is
+// keyed off them.
 const MATERIALS = {
   pb: {
     key: 'pb', name: 'Particleboard 3/4"',
@@ -20,27 +24,27 @@ const MATERIALS = {
       { key: '5x12', label: '5x12 (60"x144")', w: 60, h: 144, rawW: 61, rawH: 145, defaultCost: 0 },
     ],
     catalog: [
-      { name: '12" x 48"', w: 12, h: 48 },
-      { name: '12" x 72"', w: 12, h: 72 },
-      { name: '15" x 48"', w: 15, h: 48 },
-      { name: '15" x 72"', w: 15, h: 72 },
-      { name: '24" x 48"', w: 24, h: 48 },
-      { name: '24" x 72"', w: 24, h: 72 },
-      { name: '30" x 72"', w: 30, h: 72 },
+      { id: 'pb_0', name: '12" x 48"', w: 12, h: 48 },
+      { id: 'pb_1', name: '12" x 72"', w: 12, h: 72 },
+      { id: 'pb_2', name: '15" x 48"', w: 15, h: 48 },
+      { id: 'pb_3', name: '15" x 72"', w: 15, h: 72 },
+      { id: 'pb_4', name: '24" x 48"', w: 24, h: 48 },
+      { id: 'pb_5', name: '24" x 72"', w: 24, h: 72 },
+      { id: 'pb_6', name: '30" x 72"', w: 30, h: 72 },
     ],
-    sample: { '12" x 48"': 0, '12" x 72"': 0, '15" x 48"': 12, '15" x 72"': 84, '24" x 48"': 24, '24" x 72"': 90, '30" x 72"': 24 },
+    sample: { pb_2: 12, pb_3: 84, pb_4: 24, pb_5: 90, pb_6: 24 },
   },
   whiteMel: {
     key: 'whiteMel', name: 'White Melamine 3/4"',
     stocks: [ { key: '4x8', label: '4x8 (48"x96")', w: 48, h: 96, rawW: 49, rawH: 97, defaultCost: 0 } ],
-    catalog: [ { name: '24" x 72"', w: 24, h: 72 } ],
-    sample: { '24" x 72"': 8 },
+    catalog: [ { id: 'whiteMel_0', name: '24" x 72"', w: 24, h: 72 } ],
+    sample: { whiteMel_0: 8 },
   },
   blackMel: {
     key: 'blackMel', name: 'Black Melamine 3/4"',
     stocks: [ { key: '5x8', label: '5x8 (60"x96")', w: 60, h: 96, rawW: 61, rawH: 97, defaultCost: 0 } ],
-    catalog: [ { name: '28" x 96"', w: 28, h: 96 } ],
-    sample: { '28" x 96"': 0 },
+    catalog: [ { id: 'blackMel_0', name: '28" x 96"', w: 28, h: 96 } ],
+    sample: { blackMel_0: 0 },
   },
 };
 
@@ -149,28 +153,39 @@ function totalCost(sheets) { return sheets.reduce((s, sh) => s + sh.costPerSheet
 // ---------- App state ----------
 
 const state = {
-  qty: {},       // catKey -> quantity
-  stockCost: {}, // stockKey (e.g. 'pb:4x8') -> $ per sheet
-  customSizes: { pb: [], whiteMel: [], blackMel: [] },
+  qty: {},         // catKey(matKey,id) -> quantity
+  stockCost: {},   // stockCostKey (e.g. 'pb:4x8') -> $ per sheet
+  stockCode: {},   // stockCostKey -> product/SKU code for that stock sheet
+  catalogItems: { pb: [], whiteMel: [], blackMel: [] }, // matKey -> [{id,name,w,h,code,builtin}]
 };
 
-function catKey(matKey, name) { return matKey + '::' + name; }
+function catKey(matKey, id) { return matKey + '::' + id; }
 function stockCostKey(matKey, stockKey) { return matKey + ':' + stockKey; }
+
+function makeCustomId(matKey) {
+  return matKey + '_c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// Names/codes here routinely contain a literal " (inches), which breaks a value="..." HTML
+// attribute built via template string — escape before interpolating into any innerHTML.
+function escapeAttr(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
 
 function initState() {
   for (const matKey in MATERIALS) {
     const mat = MATERIALS[matKey];
     for (const st of mat.stocks) {
       state.stockCost[stockCostKey(matKey, st.key)] = st.defaultCost;
+      state.stockCode[stockCostKey(matKey, st.key)] = '';
     }
+    state.catalogItems[matKey] = mat.catalog.map((c) => ({
+      id: c.id, name: c.name, w: c.w, h: c.h, code: '', builtin: true,
+    }));
     for (const c of mat.catalog) {
-      state.qty[catKey(matKey, c.name)] = 0;
+      state.qty[catKey(matKey, c.id)] = 0;
     }
   }
-}
-
-function allCatalogEntries(matKey) {
-  return MATERIALS[matKey].catalog.concat(state.customSizes[matKey]);
 }
 
 // ---------- UI: Pricing panel ----------
@@ -191,13 +206,20 @@ function renderStockCostGrid() {
   for (const matKey in MATERIALS) {
     const mat = MATERIALS[matKey];
     for (const st of mat.stocks) {
+      const sck = stockCostKey(matKey, st.key);
       const div = document.createElement('div');
       div.className = 'field';
-      const id = 'stockcost_' + stockCostKey(matKey, st.key);
-      div.innerHTML = `<label>${mat.name} — ${st.label}</label><input type="number" step="0.01" id="${id}" value="${state.stockCost[stockCostKey(matKey, st.key)]}">`;
+      div.innerHTML = `
+        <label>${mat.name} — ${st.label}</label>
+        <input type="number" step="0.01" placeholder="Cost / sheet" id="stockcost_${sck}" value="${state.stockCost[sck]}">
+        <input type="text" placeholder="Product code" id="stockcode_${sck}" value="${escapeAttr(state.stockCode[sck])}" style="margin-top:6px;font-family:var(--font-mono)">`;
       host.appendChild(div);
-      div.querySelector('input').addEventListener('input', (e) => {
-        state.stockCost[stockCostKey(matKey, st.key)] = parseFloat(e.target.value) || 0;
+      div.querySelector('#stockcost_' + CSS.escape(sck)).addEventListener('input', (e) => {
+        state.stockCost[sck] = parseFloat(e.target.value) || 0;
+        scheduleAutoSave();
+      });
+      div.querySelector('#stockcode_' + CSS.escape(sck)).addEventListener('input', (e) => {
+        state.stockCode[sck] = e.target.value;
         scheduleAutoSave();
       });
     }
@@ -233,33 +255,41 @@ function renderCatalog() {
     const allowedStocks = mat.stocks.map(s => s.label).join(' or ');
     block.innerHTML = `<h3>${mat.name}</h3><div class="meta">Cut from: ${allowedStocks}</div>`;
     const table = document.createElement('table');
-    table.innerHTML = `<thead><tr><th>Finished size</th><th style="width:110px">Qty needed</th><th style="width:40px"></th></tr></thead>`;
+    table.innerHTML = `<thead><tr>
+      <th>Name</th><th style="width:70px">W (in)</th><th style="width:70px">L (in)</th>
+      <th style="width:110px">Product code</th><th style="width:90px">Qty needed</th><th style="width:36px"></th>
+    </tr></thead>`;
     const tbody = document.createElement('tbody');
     table.appendChild(tbody);
     block.appendChild(table);
 
-    function addRow(entry, removable) {
-      const tr = document.createElement('tr');
-      const k = catKey(matKey, entry.name);
+    for (const entry of state.catalogItems[matKey]) {
+      const k = catKey(matKey, entry.id);
       if (!(k in state.qty)) state.qty[k] = 0;
+      const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${entry.name} <span class="tag">(${entry.w}" x ${entry.h}")</span></td>
+        <td><input type="text" value="${escapeAttr(entry.name)}"></td>
+        <td><input type="number" class="dim-input" step="0.0625" min="0.1" value="${entry.w}"></td>
+        <td><input type="number" class="dim-input" step="0.0625" min="0.1" value="${entry.h}"></td>
+        <td><input type="text" style="font-family:var(--font-mono)" value="${escapeAttr(entry.code)}"></td>
         <td><input type="number" class="qty-input" min="0" step="1" value="${state.qty[k]}"></td>
-        <td>${removable ? '<button class="btn-ghost" title="Remove">&times;</button>' : ''}</td>`;
-      const qtyInput = tr.querySelector('input');
+        <td>${!entry.builtin ? '<button class="btn-ghost" title="Remove">&times;</button>' : ''}</td>`;
+      const [nameInput, wInput, hInput, codeInput, qtyInput] = tr.querySelectorAll('input');
+      nameInput.addEventListener('input', (e) => { entry.name = e.target.value; scheduleAutoSave(); });
+      wInput.addEventListener('input', (e) => { entry.w = parseFloat(e.target.value) || 0; scheduleAutoSave(); });
+      hInput.addEventListener('input', (e) => { entry.h = parseFloat(e.target.value) || 0; scheduleAutoSave(); });
+      codeInput.addEventListener('input', (e) => { entry.code = e.target.value; scheduleAutoSave(); });
       qtyInput.addEventListener('input', (e) => { state.qty[k] = parseInt(e.target.value) || 0; });
-      if (removable) {
+      if (!entry.builtin) {
         tr.querySelector('button').addEventListener('click', () => {
-          state.customSizes[matKey] = state.customSizes[matKey].filter(c => c !== entry);
+          state.catalogItems[matKey] = state.catalogItems[matKey].filter(c => c !== entry);
           delete state.qty[k];
+          scheduleAutoSave();
           renderCatalog();
         });
       }
       tbody.appendChild(tr);
     }
-
-    for (const entry of mat.catalog) addRow(entry, false);
-    for (const entry of state.customSizes[matKey]) addRow(entry, true);
 
     const addRowDiv = document.createElement('div');
     addRowDiv.style.cssText = 'display:flex;gap:8px;margin-top:10px;align-items:flex-end';
@@ -272,8 +302,10 @@ function renderCatalog() {
     addRowDiv.querySelector('button').addEventListener('click', () => {
       const w = parseFloat(wInput.value), h = parseFloat(hInput.value);
       if (!w || !h) return;
-      const name = `${w}" x ${h}" (custom)`;
-      state.customSizes[matKey].push({ name, w, h });
+      const id = makeCustomId(matKey);
+      state.catalogItems[matKey].push({ id, name: `${w}" x ${h}"`, w, h, code: '', builtin: false });
+      state.qty[catKey(matKey, id)] = 0;
+      scheduleAutoSave();
       renderCatalog();
     });
     block.appendChild(addRowDiv);
@@ -312,7 +344,7 @@ function renderSavedRequests() {
     loadBtn.style.marginRight = '6px';
     loadBtn.addEventListener('click', () => {
       state.qty = Object.assign({}, req.qty);
-      state.customSizes = JSON.parse(JSON.stringify(req.customSizes || { pb: [], whiteMel: [], blackMel: [] }));
+      if (req.catalogItems) state.catalogItems = JSON.parse(JSON.stringify(req.catalogItems));
       renderCatalog();
     });
     const delBtn = document.createElement('button');
@@ -342,7 +374,7 @@ document.getElementById('saveRequestBtn').addEventListener('click', () => {
     name,
     savedAt: Date.now(),
     qty: Object.assign({}, state.qty),
-    customSizes: JSON.parse(JSON.stringify(state.customSizes)),
+    catalogItems: JSON.parse(JSON.stringify(state.catalogItems)),
   });
   setSavedRequests(saved);
   nameInput.value = '';
@@ -352,7 +384,7 @@ document.getElementById('saveRequestBtn').addEventListener('click', () => {
 document.getElementById('loadSampleBtn').addEventListener('click', () => {
   for (const matKey in MATERIALS) {
     const mat = MATERIALS[matKey];
-    for (const name in mat.sample) state.qty[catKey(matKey, name)] = mat.sample[name];
+    for (const id in mat.sample) state.qty[catKey(matKey, id)] = mat.sample[id];
   }
   renderCatalog();
 });
@@ -378,12 +410,12 @@ function getSettings() {
 
 function runOptimization() {
   const settings = getSettings();
-  const results = {}; // matKey -> { sheets, unplaced, totalMaterialCost, totalGoodSqFt, sheetSqFtUsed, perSize: {name: {qty,sqftEach,goodSqft}} }
+  const results = {}; // matKey -> { sheets, unplaced, totalMaterialCost, totalGoodSqFt, sheetSqFtUsed, perSize: {id: {name,code,qty,sqftEach,goodSqft}} }
 
   for (const matKey in MATERIALS) {
     const mat = MATERIALS[matKey];
     const stockTypes = mat.stocks.map(st => ({
-      key: st.key, label: st.label,
+      key: st.key, label: st.label, code: state.stockCode[stockCostKey(matKey, st.key)] || '',
       netW: st.rawW - settings.squaring * 2, netH: st.rawH - settings.squaring * 2,
       nominalW: st.w, nominalH: st.h,
       costPerSheet: state.stockCost[stockCostKey(matKey, st.key)] || 0,
@@ -391,11 +423,11 @@ function runOptimization() {
 
     const pieces = [];
     const perSize = {};
-    for (const entry of allCatalogEntries(matKey)) {
-      const qty = state.qty[catKey(matKey, entry.name)] || 0;
+    for (const entry of state.catalogItems[matKey]) {
+      const qty = state.qty[catKey(matKey, entry.id)] || 0;
       const sqftEach = (entry.w * entry.h) / 144;
-      perSize[entry.name] = { qty, sqftEach, w: entry.w, h: entry.h, goodSqft: qty * sqftEach };
-      for (let i = 0; i < qty; i++) pieces.push({ w: entry.w, h: entry.h, label: entry.name, catKey: entry.name });
+      perSize[entry.id] = { name: entry.name, code: entry.code, qty, sqftEach, w: entry.w, h: entry.h, goodSqft: qty * sqftEach };
+      for (let i = 0; i < qty; i++) pieces.push({ w: entry.w, h: entry.h, label: entry.name, catKey: entry.id });
     }
 
     const { sheets, unplaced } = packAllSheets(pieces, stockTypes, settings.kerf, settings.allowRotate);
@@ -519,18 +551,18 @@ function renderResults(opt) {
     const table = document.createElement('table');
     table.style.marginTop = '14px';
     table.innerHTML = `<thead><tr>
-      <th>Finished Size</th><th class="right">Qty</th><th class="right">Actual Cost / Panel</th>
+      <th>Finished Size</th><th>Code</th><th class="right">Qty</th><th class="right">Actual Cost / Panel</th>
       <th class="right">Cost With Bump</th><th class="right">Ideal Sell</th>
     </tr></thead>`;
     const tbody = document.createElement('tbody');
-    for (const name in r.perSize) {
-      const p = r.perSize[name];
+    for (const id in r.perSize) {
+      const p = r.perSize[id];
       const actualCost = p.qty > 0 ? r.combinedCostPerSqFt * p.sqftEach : 0;
       const bump = actualCost * settings.bumpMult;
       const sell = bump / settings.sellDivisor;
       const tr = document.createElement('tr');
       if (p.qty === 0) tr.style.opacity = '0.5';
-      tr.innerHTML = `<td>${name}</td><td class="right">${p.qty}</td>
+      tr.innerHTML = `<td>${p.name}</td><td class="tag">${p.code || '—'}</td><td class="right">${p.qty}</td>
         <td class="right money">${fmt$(actualCost)}</td>
         <td class="right money">${fmt$(bump)}</td>
         <td class="right money">${fmt$(sell)}</td>`;
@@ -563,7 +595,7 @@ function buildSheetLines(results) {
       if (count === 0) continue;
       const lineTotal = count * st.costPerSheet;
       grandMaterial += lineTotal;
-      lines.push({ matName: mat.name, stockLabel: st.label, count, costPerSheet: st.costPerSheet, lineTotal });
+      lines.push({ matName: mat.name, stockLabel: st.label, code: st.code || '', count, costPerSheet: st.costPerSheet, lineTotal });
     }
   }
   return { lines, grandMaterial };
@@ -581,12 +613,12 @@ function renderPurchaser(opt) {
   for (const matKey in results) {
     const r = results[matKey];
     const mat = MATERIALS[matKey];
-    for (const name in r.perSize) {
-      const p = r.perSize[name];
+    for (const id in r.perSize) {
+      const p = r.perSize[id];
       if (p.qty <= 0) continue;
       const actualCost = r.combinedCostPerSqFt * p.sqftEach;
       const bump = actualCost * settings.bumpMult;
-      itemLines.push({ matName: mat.name, size: name, qty: p.qty, actualCost, bump });
+      itemLines.push({ matName: mat.name, size: p.name, code: p.code || '', qty: p.qty, actualCost, bump });
     }
   }
   const totalActualExt = itemLines.reduce((s, l) => s + l.actualCost * l.qty, 0);
@@ -605,11 +637,11 @@ function renderPurchaser(opt) {
       </div>
     </div>`;
   const pTable = document.createElement('table');
-  pTable.innerHTML = `<thead><tr><th>Material</th><th>Finished Size</th><th class="right">Qty</th><th class="right">Actual Cost</th><th class="right">Cost With Bump</th></tr></thead>`;
+  pTable.innerHTML = `<thead><tr><th>Material</th><th>Finished Size</th><th>Code</th><th class="right">Qty</th><th class="right">Actual Cost</th><th class="right">Cost With Bump</th></tr></thead>`;
   const pTbody = document.createElement('tbody');
   for (const l of itemLines) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${l.matName}</td><td>${l.size}</td><td class="right">${l.qty}</td><td class="right money">${fmt$(l.actualCost)}</td><td class="right money">${fmt$(l.bump)}</td>`;
+    tr.innerHTML = `<td>${l.matName}</td><td>${l.size}</td><td class="tag">${l.code || '—'}</td><td class="right">${l.qty}</td><td class="right money">${fmt$(l.actualCost)}</td><td class="right money">${fmt$(l.bump)}</td>`;
     pTbody.appendChild(tr);
   }
   pTable.appendChild(pTbody);
@@ -626,7 +658,7 @@ function renderPurchaser(opt) {
 
   document.getElementById('printPurchaserBtn').addEventListener('click', () => window.print());
   document.getElementById('copyPurchaserBtn').addEventListener('click', () => {
-    const textLines = itemLines.map(l => `${l.matName} — ${l.size}: qty ${l.qty}  |  Actual Cost ${fmt$(l.actualCost)}  |  Cost With Bump ${fmt$(l.bump)}`);
+    const textLines = itemLines.map(l => `${l.matName} — ${l.size}${l.code ? ' (' + l.code + ')' : ''}: qty ${l.qty}  |  Actual Cost ${fmt$(l.actualCost)}  |  Cost With Bump ${fmt$(l.bump)}`);
     const text = `Tilly's Purchaser Order\n\n${textLines.join('\n')}\n\nTotal Actual Cost: ${fmt$(totalActualExt)}\nTotal Cost With Bump: ${fmt$(totalBumpExt)}`;
     navigator.clipboard.writeText(text).then(() => {
       const flash = document.getElementById('copyFlash');
@@ -641,11 +673,11 @@ function renderPurchaser(opt) {
   internalCard.innerHTML = `<h2>Internal Reference <span class="tag" style="font-size:12px">(personal — not for the purchaser)</span></h2><div class="sub">Full job cost including pooled cutting labor.</div>`;
   const iTable = document.createElement('table');
   iTable.style.marginTop = '10px';
-  iTable.innerHTML = `<thead><tr><th>Material</th><th>Stock Sheet</th><th class="right">Qty</th><th class="right">Cost / Sheet</th><th class="right">Line Total</th></tr></thead>`;
+  iTable.innerHTML = `<thead><tr><th>Material</th><th>Stock Sheet</th><th>Code</th><th class="right">Qty</th><th class="right">Cost / Sheet</th><th class="right">Line Total</th></tr></thead>`;
   const iTbody = document.createElement('tbody');
   for (const l of lines) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${l.matName}</td><td>${l.stockLabel}</td><td class="right">${l.count}</td><td class="right money">${fmt$(l.costPerSheet)}</td><td class="right money">${fmt$(l.lineTotal)}</td>`;
+    tr.innerHTML = `<td>${l.matName}</td><td>${l.stockLabel}</td><td class="tag">${l.code || '—'}</td><td class="right">${l.count}</td><td class="right money">${fmt$(l.costPerSheet)}</td><td class="right money">${fmt$(l.lineTotal)}</td>`;
     iTbody.appendChild(tr);
   }
   iTable.appendChild(iTbody);
@@ -729,7 +761,7 @@ async function savePricingToCloud() {
   const statusEl = document.getElementById('pricingSyncStatus');
   statusEl.textContent = 'Saving...';
   try {
-    const payload = { stockCost: state.stockCost, settings: getSettings() };
+    const payload = { stockCost: state.stockCost, stockCode: state.stockCode, catalogItems: state.catalogItems, settings: getSettings() };
     const res = await fetch(WORKER_BASE + '/pricing', {
       method: 'PUT', headers: { 'X-Tillys-Key': key, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -746,6 +778,20 @@ function applyPricingToUI(pricing) {
   if (!pricing) return;
   if (pricing.stockCost) {
     for (const k in pricing.stockCost) state.stockCost[k] = pricing.stockCost[k];
+  }
+  if (pricing.stockCode) {
+    for (const k in pricing.stockCode) state.stockCode[k] = pricing.stockCode[k];
+  }
+  if (pricing.catalogItems) {
+    for (const matKey in pricing.catalogItems) {
+      if (!state.catalogItems[matKey]) continue;
+      state.catalogItems[matKey] = pricing.catalogItems[matKey];
+      // qty is job-specific and not synced — make sure every restored item still has a qty slot
+      for (const entry of state.catalogItems[matKey]) {
+        const k = catKey(matKey, entry.id);
+        if (!(k in state.qty)) state.qty[k] = 0;
+      }
+    }
   }
   if (pricing.settings) {
     const s = pricing.settings;
@@ -770,6 +816,7 @@ async function bootApp() {
   if (pricing) {
     applyPricingToUI(pricing);
     renderStockCostGrid();
+    renderCatalog();
   }
 }
 

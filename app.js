@@ -763,6 +763,52 @@ document.getElementById('lockPw').addEventListener('keydown', (e) => {
 });
 document.getElementById('savePricingBtn').addEventListener('click', savePricingToCloud);
 
+document.getElementById('pwToggle').addEventListener('click', () => {
+  const body = document.getElementById('pwBody');
+  const toggle = document.getElementById('pwToggle');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  toggle.classList.toggle('open', !open);
+});
+
+document.getElementById('pwSubmitBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('pwStatus');
+  const currentInput = document.getElementById('pwCurrent');
+  const newInput = document.getElementById('pwNew');
+  const confirmInput = document.getElementById('pwConfirm');
+  const current = currentInput.value, next = newInput.value, confirmVal = confirmInput.value;
+
+  const fail = (msg) => { statusEl.textContent = msg; statusEl.style.color = 'var(--danger)'; };
+  if (!current || !next || !confirmVal) return fail('Fill in all three fields.');
+  if (next !== confirmVal) return fail('New passwords do not match.');
+  if (next.length < 6) return fail('New password must be at least 6 characters.');
+
+  statusEl.style.color = 'var(--mid)';
+  statusEl.textContent = 'Verifying current password...';
+  const currentOk = await attemptLogin(current);
+  if (!currentOk) return fail('Current password is incorrect.');
+
+  statusEl.textContent = 'Updating...';
+  try {
+    const res = await fetch(WORKER_BASE + '/change-password', {
+      method: 'POST',
+      headers: { 'X-Tillys-Key': getAuthKey(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPassword: next }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setAuthKey(data.key);
+      statusEl.style.color = 'var(--teal)';
+      statusEl.textContent = 'Password updated. Use the new one next time you log in on another device.';
+      currentInput.value = ''; newInput.value = ''; confirmInput.value = '';
+    } else {
+      fail(data.error || 'Could not update password.');
+    }
+  } catch (e) {
+    fail('Network error — try again.');
+  }
+});
+
 (async function boot() {
   if (getAuthKey()) { hideLockScreen(); await bootApp(); }
   else { showLockScreen(); }

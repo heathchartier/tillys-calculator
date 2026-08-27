@@ -314,16 +314,19 @@ function renderCatalog() {
   }
 }
 
-// ---------- Saved requests (localStorage) ----------
+// ---------- Saved requests (cloud-synced, same KV store as pricing) ----------
+// Used to live in localStorage only, which meant a request saved on one device never showed up
+// on another. Now mirrors the pricing sync pattern: an in-memory cache populated from the cloud
+// at boot, and every save/delete pushes the whole list back up so every device sees it.
 
-const SAVED_REQUESTS_KEY = 'tillys_saved_requests';
+let savedRequestsCache = [];
 
 function getSavedRequests() {
-  try { return JSON.parse(localStorage.getItem(SAVED_REQUESTS_KEY)) || []; }
-  catch (e) { return []; }
+  return savedRequestsCache;
 }
 function setSavedRequests(list) {
-  try { localStorage.setItem(SAVED_REQUESTS_KEY, JSON.stringify(list)); } catch (e) {}
+  savedRequestsCache = list;
+  pushSavedRequestsToCloud(list);
 }
 
 function renderSavedRequests() {
@@ -954,6 +957,35 @@ async function savePricingToCloud() {
   setTimeout(() => { statusEl.textContent = ''; }, 3000);
 }
 
+async function fetchSavedRequestsFromCloud() {
+  const key = getAuthKey();
+  if (!key) return [];
+  try {
+    const res = await fetch(WORKER_BASE + '/requests', { headers: { 'X-Tillys-Key': key } });
+    if (res.status === 401) { clearAuthKey(); showLockScreen(); return []; }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (e) { return []; }
+}
+
+async function pushSavedRequestsToCloud(list) {
+  const key = getAuthKey();
+  if (!key) return;
+  const statusEl = document.getElementById('requestSyncStatus');
+  if (statusEl) statusEl.textContent = 'Saving...';
+  try {
+    const res = await fetch(WORKER_BASE + '/requests', {
+      method: 'PUT', headers: { 'X-Tillys-Key': key, 'Content-Type': 'application/json' },
+      body: JSON.stringify(list),
+    });
+    if (res.status === 401) { clearAuthKey(); showLockScreen(); return; }
+    if (statusEl) statusEl.textContent = 'Synced to all your devices.';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Saved on this device only — sync failed, check your connection.';
+  }
+  if (statusEl) setTimeout(() => { statusEl.textContent = ''; }, 3000);
+}
+
 function applyPricingToUI(pricing) {
   if (!pricing) return;
   if (pricing.stockCost) {
@@ -991,13 +1023,15 @@ async function bootApp() {
   initState();
   renderStockCostGrid();
   renderCatalog();
-  renderSavedRequests();
-  const pricing = await fetchPricingFromCloud();
+  document.getElementById('savedRequestsList').innerHTML = '<div class="small">Loading...</div>';
+  const [pricing, requests] = await Promise.all([fetchPricingFromCloud(), fetchSavedRequestsFromCloud()]);
   if (pricing) {
     applyPricingToUI(pricing);
     renderStockCostGrid();
     renderCatalog();
   }
+  savedRequestsCache = requests;
+  renderSavedRequests();
 }
 
 document.getElementById('lockSubmit').addEventListener('click', async () => {

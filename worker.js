@@ -8,6 +8,8 @@
 //   POST /login            { password } -> { ok, key }   (key = sha256 hex of password, reused as the auth header value)
 //   GET  /pricing           (X-Tillys-Key header)  -> stored pricing JSON, or null if never saved
 //   PUT  /pricing           (X-Tillys-Key header, JSON body) -> saves pricing JSON
+//   GET  /requests          (X-Tillys-Key header)  -> stored saved-requests JSON array, or [] if never saved
+//   PUT  /requests          (X-Tillys-Key header, JSON body) -> saves the saved-requests array (cross-device sync)
 //   POST /change-password   (X-Tillys-Key header, { newPassword }) -> sets a new password, returns { ok, key }
 
 function corsHeaders() {
@@ -79,6 +81,19 @@ export default {
       if (!(await checkKey(request, env))) return new Response('Unauthorized', { status: 401, headers: corsHeaders() });
       const body = await request.text();
       await env.TILLYS_KV.put('pricing', body);
+      return json({ ok: true });
+    }
+
+    if (url.pathname === '/requests' && request.method === 'GET') {
+      if (!(await checkKey(request, env))) return new Response('Unauthorized', { status: 401, headers: corsHeaders() });
+      const data = await env.TILLYS_KV.get('saved_requests');
+      return new Response(data || '[]', { headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    }
+
+    if (url.pathname === '/requests' && request.method === 'PUT') {
+      if (!(await checkKey(request, env))) return new Response('Unauthorized', { status: 401, headers: corsHeaders() });
+      const body = await request.text();
+      await env.TILLYS_KV.put('saved_requests', body);
       return json({ ok: true });
     }
 

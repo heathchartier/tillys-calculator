@@ -157,6 +157,10 @@ const state = {
   stockCost: {},   // stockCostKey (e.g. 'pb:4x8') -> $ per sheet
   stockCode: {},   // stockCostKey -> product/SKU code for that stock sheet
   catalogItems: { pb: [], whiteMel: [], blackMel: [] }, // matKey -> [{id,name,w,h,code,builtin}]
+  // matKey -> [{key,label,w,h,rawW,rawH,builtin}] — the stock sheet SIZES a material can be cut
+  // from. Starts as the built-in stocks from MATERIALS, but is fully editable/addable so Heath
+  // can bring in a new panel size later (e.g. if a supplier's price on something else drops).
+  stockItems: { pb: [], whiteMel: [], blackMel: [] },
 };
 
 function catKey(matKey, id) { return matKey + '::' + id; }
@@ -164,6 +168,10 @@ function stockCostKey(matKey, stockKey) { return matKey + ':' + stockKey; }
 
 function makeCustomId(matKey) {
   return matKey + '_c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function makeCustomStockKey() {
+  return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
 // Names/codes here routinely contain a literal " (inches), which breaks a value="..." HTML
@@ -175,6 +183,9 @@ function escapeAttr(s) {
 function initState() {
   for (const matKey in MATERIALS) {
     const mat = MATERIALS[matKey];
+    state.stockItems[matKey] = mat.stocks.map((st) => ({
+      key: st.key, label: st.label, w: st.w, h: st.h, rawW: st.rawW, rawH: st.rawH, builtin: true,
+    }));
     for (const st of mat.stocks) {
       state.stockCost[stockCostKey(matKey, st.key)] = st.defaultCost;
       state.stockCode[stockCostKey(matKey, st.key)] = '';
@@ -205,24 +216,77 @@ function renderStockCostGrid() {
   host.innerHTML = '';
   for (const matKey in MATERIALS) {
     const mat = MATERIALS[matKey];
-    for (const st of mat.stocks) {
-      const sck = stockCostKey(matKey, st.key);
-      const div = document.createElement('div');
-      div.className = 'field';
-      div.innerHTML = `
-        <label>${mat.name} — ${st.label}</label>
-        <input type="number" step="0.01" placeholder="Cost / sheet" id="stockcost_${sck}" value="${state.stockCost[sck]}">
-        <input type="text" placeholder="Product code" id="stockcode_${sck}" value="${escapeAttr(state.stockCode[sck])}" style="margin-top:6px;font-family:var(--font-mono)">`;
-      host.appendChild(div);
-      div.querySelector('#stockcost_' + CSS.escape(sck)).addEventListener('input', (e) => {
-        state.stockCost[sck] = parseFloat(e.target.value) || 0;
-        scheduleAutoSave();
-      });
-      div.querySelector('#stockcode_' + CSS.escape(sck)).addEventListener('input', (e) => {
-        state.stockCode[sck] = e.target.value;
-        scheduleAutoSave();
-      });
+    const block = document.createElement('div');
+    block.className = 'material-block';
+    block.innerHTML = `<h3>${mat.name} — Stock Sheets</h3><div class="meta">Panel sizes this material can be cut from. Raw W/L is the true oversize purchase size (usually nominal + 1").</div>`;
+    const table = document.createElement('table');
+    table.innerHTML = `<thead><tr>
+      <th>Label</th><th style="width:78px">Nom. W</th><th style="width:78px">Nom. L</th>
+      <th style="width:78px">Raw W</th><th style="width:78px">Raw L</th>
+      <th style="width:100px">Cost / sheet</th><th style="width:110px">Product code</th><th style="width:36px"></th>
+    </tr></thead>`;
+    const tbody = document.createElement('tbody');
+    table.appendChild(tbody);
+    block.appendChild(table);
+
+    for (const item of state.stockItems[matKey]) {
+      const sck = stockCostKey(matKey, item.key);
+      if (!(sck in state.stockCost)) state.stockCost[sck] = 0;
+      if (!(sck in state.stockCode)) state.stockCode[sck] = '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="text" value="${escapeAttr(item.label)}"></td>
+        <td><input type="number" class="dim-input" step="0.0625" min="0.1" value="${item.w}"></td>
+        <td><input type="number" class="dim-input" step="0.0625" min="0.1" value="${item.h}"></td>
+        <td><input type="number" class="dim-input" step="0.0625" min="0.1" value="${item.rawW}"></td>
+        <td><input type="number" class="dim-input" step="0.0625" min="0.1" value="${item.rawH}"></td>
+        <td><input type="number" step="0.01" value="${state.stockCost[sck]}"></td>
+        <td><input type="text" style="font-family:var(--font-mono)" value="${escapeAttr(state.stockCode[sck])}"></td>
+        <td>${!item.builtin ? '<button class="btn-ghost" title="Remove">&times;</button>' : ''}</td>`;
+      const [labelInput, wInput, hInput, rawWInput, rawHInput, costInput, codeInput] = tr.querySelectorAll('input');
+      labelInput.addEventListener('input', (e) => { item.label = e.target.value; scheduleAutoSave(); });
+      wInput.addEventListener('input', (e) => { item.w = parseFloat(e.target.value) || 0; scheduleAutoSave(); renderCatalog(); });
+      hInput.addEventListener('input', (e) => { item.h = parseFloat(e.target.value) || 0; scheduleAutoSave(); renderCatalog(); });
+      rawWInput.addEventListener('input', (e) => { item.rawW = parseFloat(e.target.value) || 0; scheduleAutoSave(); });
+      rawHInput.addEventListener('input', (e) => { item.rawH = parseFloat(e.target.value) || 0; scheduleAutoSave(); });
+      costInput.addEventListener('input', (e) => { state.stockCost[sck] = parseFloat(e.target.value) || 0; scheduleAutoSave(); });
+      codeInput.addEventListener('input', (e) => { state.stockCode[sck] = e.target.value; scheduleAutoSave(); });
+      if (!item.builtin) {
+        tr.querySelector('button').addEventListener('click', () => {
+          state.stockItems[matKey] = state.stockItems[matKey].filter((x) => x !== item);
+          delete state.stockCost[sck];
+          delete state.stockCode[sck];
+          scheduleAutoSave();
+          renderStockCostGrid();
+          renderCatalog();
+        });
+      }
+      tbody.appendChild(tr);
     }
+
+    const addRowDiv = document.createElement('div');
+    addRowDiv.style.cssText = 'display:flex;gap:8px;margin-top:10px;align-items:flex-end;flex-wrap:wrap';
+    addRowDiv.innerHTML = `
+      <div class="field" style="flex:0 0 100px;margin-bottom:0"><label>Nominal W (in)</label><input type="number" class="dim-input" step="0.0625" min="0.1"></div>
+      <div class="field" style="flex:0 0 100px;margin-bottom:0"><label>Nominal L (in)</label><input type="number" class="dim-input" step="0.0625" min="0.1"></div>
+      <button class="btn-secondary">+ Add stock sheet</button>`;
+    const [addWInput, addHInput] = addRowDiv.querySelectorAll('input');
+    addRowDiv.querySelector('button').addEventListener('click', () => {
+      const w = parseFloat(addWInput.value), h = parseFloat(addHInput.value);
+      if (!w || !h) return;
+      const key = makeCustomStockKey();
+      state.stockItems[matKey].push({
+        key, label: `${w}x${h}`, w, h, rawW: w + 1, rawH: h + 1, builtin: false,
+      });
+      state.stockCost[stockCostKey(matKey, key)] = 0;
+      state.stockCode[stockCostKey(matKey, key)] = '';
+      scheduleAutoSave();
+      renderStockCostGrid();
+      renderCatalog();
+    });
+    block.appendChild(addRowDiv);
+
+    host.appendChild(block);
   }
 }
 
@@ -252,7 +316,7 @@ function renderCatalog() {
     const mat = MATERIALS[matKey];
     const block = document.createElement('div');
     block.className = 'material-block';
-    const allowedStocks = mat.stocks.map(s => s.label).join(' or ');
+    const allowedStocks = state.stockItems[matKey].map(s => s.label).join(' or ');
     block.innerHTML = `<h3>${mat.name}</h3><div class="meta">Cut from: ${allowedStocks}</div>`;
     const table = document.createElement('table');
     table.innerHTML = `<thead><tr>
@@ -417,7 +481,7 @@ function runOptimization() {
 
   for (const matKey in MATERIALS) {
     const mat = MATERIALS[matKey];
-    const stockTypes = mat.stocks.map(st => ({
+    const stockTypes = state.stockItems[matKey].map(st => ({
       key: st.key, label: st.label, code: state.stockCode[stockCostKey(matKey, st.key)] || '',
       netW: st.rawW - settings.squaring * 2, netH: st.rawH - settings.squaring * 2,
       nominalW: st.w, nominalH: st.h,
@@ -601,10 +665,11 @@ function renderResults(opt) {
 // ---------- Rendering: purchaser order + internal reference ----------
 
 // "62% 4x8 · 38% 5x12" — what share of this finished size's pieces actually came off each stock
-// sheet option. Skipped (returns '') when the material only has one stock option, since it's
-// always 100% and not worth a column entry.
+// sheet option. Always computed from the real placements (not hardcoded to "100%" for materials
+// that happen to have only one stock option today) so it stays correct automatically if Heath
+// adds a second stock size to cut a material from later.
 function cutFromBreakdown(ps, stockTypes) {
-  if (stockTypes.length <= 1 || !ps.bySheet || ps.qty <= 0) return '';
+  if (!ps.bySheet || ps.qty <= 0) return '';
   const stLabel = {};
   for (const st of stockTypes) stLabel[st.key] = st.key;
   return Object.keys(ps.bySheet).sort().map((k) => {
@@ -971,7 +1036,7 @@ async function savePricingToCloud() {
   const statusEl = document.getElementById('pricingSyncStatus');
   statusEl.textContent = 'Saving...';
   try {
-    const payload = { stockCost: state.stockCost, stockCode: state.stockCode, catalogItems: state.catalogItems, settings: getSettings() };
+    const payload = { stockCost: state.stockCost, stockCode: state.stockCode, catalogItems: state.catalogItems, stockItems: state.stockItems, settings: getSettings() };
     const res = await fetch(WORKER_BASE + '/pricing', {
       method: 'PUT', headers: { 'X-Tillys-Key': key, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1020,6 +1085,19 @@ function applyPricingToUI(pricing) {
   }
   if (pricing.stockCode) {
     for (const k in pricing.stockCode) state.stockCode[k] = pricing.stockCode[k];
+  }
+  if (pricing.stockItems) {
+    for (const matKey in pricing.stockItems) {
+      if (!state.stockItems[matKey]) continue;
+      state.stockItems[matKey] = pricing.stockItems[matKey];
+      // cost/code are job-independent but keyed off item.key — make sure every restored item
+      // still has a slot even if this device never saw it added on another device before.
+      for (const item of state.stockItems[matKey]) {
+        const sck = stockCostKey(matKey, item.key);
+        if (!(sck in state.stockCost)) state.stockCost[sck] = 0;
+        if (!(sck in state.stockCode)) state.stockCode[sck] = '';
+      }
+    }
   }
   if (pricing.catalogItems) {
     for (const matKey in pricing.catalogItems) {

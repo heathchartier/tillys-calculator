@@ -434,6 +434,19 @@ function runOptimization() {
     }
 
     const { sheets, unplaced } = packAllSheets(pieces, stockTypes, settings.kerf, settings.allowRotate);
+
+    // Track which stock sheet each placed piece actually came from, per finished size — lets the
+    // purchaser summary show e.g. "62% off 4x8, 38% off 5x12" for a size that can be cut from more
+    // than one stock option.
+    for (const sh of sheets) {
+      for (const p of sh.placements) {
+        const ps = perSize[p.catKey];
+        if (!ps) continue;
+        if (!ps.bySheet) ps.bySheet = {};
+        ps.bySheet[sh.stockKey] = (ps.bySheet[sh.stockKey] || 0) + 1;
+      }
+    }
+
     const totalMaterialCost = totalCost(sheets);
     const totalGoodSqFt = pieces.reduce((s, p) => s + (p.w * p.h) / 144, 0);
     const sheetSqFtUsed = sheets.reduce((s, sh) => s + (sh.nominalW * sh.nominalH) / 144, 0);
@@ -587,6 +600,19 @@ function renderResults(opt) {
 
 // ---------- Rendering: purchaser order + internal reference ----------
 
+// "62% 4x8 · 38% 5x12" — what share of this finished size's pieces actually came off each stock
+// sheet option. Skipped (returns '') when the material only has one stock option, since it's
+// always 100% and not worth a column entry.
+function cutFromBreakdown(ps, stockTypes) {
+  if (stockTypes.length <= 1 || !ps.bySheet || ps.qty <= 0) return '';
+  const stLabel = {};
+  for (const st of stockTypes) stLabel[st.key] = st.key;
+  return Object.keys(ps.bySheet).sort().map((k) => {
+    const pct = Math.round((ps.bySheet[k] / ps.qty) * 100);
+    return `${pct}% ${stLabel[k] || k}`;
+  }).join(' · ');
+}
+
 function buildSheetLines(results) {
   const lines = [];
   let grandMaterial = 0;
@@ -620,7 +646,8 @@ function renderPurchaser(opt) {
       if (p.qty <= 0) continue;
       const actualCost = r.combinedCostPerSqFt * p.sqftEach;
       const bump = actualCost * settings.bumpMult;
-      itemLines.push({ matName: mat.name, size: p.name, code: p.code || '', qty: p.qty, actualCost, bump });
+      const cutFrom = cutFromBreakdown(p, r.stockTypes);
+      itemLines.push({ matName: mat.name, size: p.name, code: p.code || '', qty: p.qty, actualCost, bump, cutFrom });
     }
   }
   const totalActualExt = itemLines.reduce((s, l) => s + l.actualCost * l.qty, 0);
@@ -644,11 +671,11 @@ function renderPurchaser(opt) {
 
   const pTable = document.createElement('table');
   pTable.style.marginTop = '14px';
-  pTable.innerHTML = `<thead><tr><th>Material</th><th>Finished Size</th><th>Code</th><th class="right">Qty</th><th class="right">Actual Cost</th><th class="right">Cost With Bump</th></tr></thead>`;
+  pTable.innerHTML = `<thead><tr><th>Material</th><th>Finished Size</th><th>Code</th><th class="right">Qty</th><th>Cut From</th><th class="right">Actual Cost</th><th class="right">Cost With Bump</th></tr></thead>`;
   const pTbody = document.createElement('tbody');
   for (const l of itemLines) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${l.matName}</td><td>${l.size}</td><td class="code-cell">${l.code || '—'}</td><td class="right">${l.qty}</td><td class="right money">${fmt$(l.actualCost)}</td><td class="right money">${fmt$(l.bump)}</td>`;
+    tr.innerHTML = `<td>${l.matName}</td><td>${l.size}</td><td class="code-cell">${l.code || '—'}</td><td class="right">${l.qty}</td><td class="code-cell">${l.cutFrom || '—'}</td><td class="right money">${fmt$(l.actualCost)}</td><td class="right money">${fmt$(l.bump)}</td>`;
     pTbody.appendChild(tr);
   }
   pTable.appendChild(pTbody);
